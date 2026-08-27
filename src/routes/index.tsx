@@ -101,7 +101,7 @@ function TradePage() {
   const available = Math.max(0, poolTvl - borrowed);
   const needed = size - coll;
 
-  const up = history.length > 1 && history[history.length - 1] >= history[0];
+  const up = history.length > 1 && (history.at(-1) ?? 0) >= (history[0] ?? 0);
 
   const openMut = useMutation({
     mutationFn: async () => {
