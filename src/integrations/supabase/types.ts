@@ -14,7 +14,180 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      fee_config: {
+        Row: {
+          borrow_fee_bps_hourly: number
+          buyback_share_bps: number
+          id: string
+          liquidation_fee_bps: number
+          lp_share_bps: number
+          max_leverage: number
+          singleton: boolean
+          trading_fee_bps: number
+          treasury_share_bps: number
+          updated_at: string
+        }
+        Insert: {
+          borrow_fee_bps_hourly?: number
+          buyback_share_bps?: number
+          id?: string
+          liquidation_fee_bps?: number
+          lp_share_bps?: number
+          max_leverage?: number
+          singleton?: boolean
+          trading_fee_bps?: number
+          treasury_share_bps?: number
+          updated_at?: string
+        }
+        Update: {
+          borrow_fee_bps_hourly?: number
+          buyback_share_bps?: number
+          id?: string
+          liquidation_fee_bps?: number
+          lp_share_bps?: number
+          max_leverage?: number
+          singleton?: boolean
+          trading_fee_bps?: number
+          treasury_share_bps?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      fee_events: {
+        Row: {
+          account: string
+          amount: number
+          buyback_amount: number
+          created_at: string
+          id: string
+          kind: string
+          lp_amount: number
+          treasury_amount: number
+        }
+        Insert: {
+          account: string
+          amount: number
+          buyback_amount?: number
+          created_at?: string
+          id?: string
+          kind: string
+          lp_amount?: number
+          treasury_amount?: number
+        }
+        Update: {
+          account?: string
+          amount?: number
+          buyback_amount?: number
+          created_at?: string
+          id?: string
+          kind?: string
+          lp_amount?: number
+          treasury_amount?: number
+        }
+        Relationships: []
+      }
+      lp_positions: {
+        Row: {
+          account: string
+          amount: number
+          created_at: string
+          id: string
+        }
+        Insert: {
+          account: string
+          amount: number
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          account?: string
+          amount?: number
+          created_at?: string
+          id?: string
+        }
+        Relationships: []
+      }
+      markets: {
+        Row: {
+          base_price: number
+          created_at: string
+          id: string
+          is_active: boolean
+          max_leverage: number
+          name: string
+          symbol: string
+        }
+        Insert: {
+          base_price?: number
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          max_leverage?: number
+          name: string
+          symbol: string
+        }
+        Update: {
+          base_price?: number
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          max_leverage?: number
+          name?: string
+          symbol?: string
+        }
+        Relationships: []
+      }
+      positions: {
+        Row: {
+          account: string
+          closed_at: string | null
+          collateral: number
+          entry_price: number
+          exit_price: number | null
+          fees_paid: number
+          id: string
+          leverage: number
+          liquidation_price: number
+          market_symbol: string
+          opened_at: string
+          pnl: number | null
+          side: string
+          status: string
+        }
+        Insert: {
+          account: string
+          closed_at?: string | null
+          collateral: number
+          entry_price: number
+          exit_price?: number | null
+          fees_paid?: number
+          id?: string
+          leverage: number
+          liquidation_price: number
+          market_symbol: string
+          opened_at?: string
+          pnl?: number | null
+          side?: string
+          status?: string
+        }
+        Update: {
+          account?: string
+          closed_at?: string | null
+          collateral?: number
+          entry_price?: number
+          exit_price?: number | null
+          fees_paid?: number
+          id?: string
+          leverage?: number
+          liquidation_price?: number
+          market_symbol?: string
+          opened_at?: string
+          pnl?: number | null
+          side?: string
+          status?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
