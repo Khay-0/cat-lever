@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { useAccount, fmtUsd } from "@/lib/kova";
+
+import { ConnectWallet } from "./ConnectWallet";
 
 const links = [
   { to: "/", label: "TRADE" },
@@ -9,8 +10,6 @@ const links = [
 ] as const;
 
 export function Nav() {
-  const { account, balance } = useAccount();
-
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-4">
@@ -38,18 +37,8 @@ export function Nav() {
           ))}
         </nav>
 
-        <div className="ml-auto flex items-center gap-3">
-          <div className="hidden text-right sm:block">
-            <div className="font-mono text-[10px] tracking-widest text-muted-foreground">
-              SOLDE DÉMO
-            </div>
-            <div className="mono-num text-sm text-primary">
-              ${fmtUsd(balance)}
-            </div>
-          </div>
-          <div className="rounded border border-border bg-secondary/60 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
-            {account.slice(0, 9)}…
-          </div>
+        <div className="ml-auto">
+          <ConnectWallet />
         </div>
       </div>
     </header>
