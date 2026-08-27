@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAccount, useBalance, useChainId, useConnect, useDisconnect, useSwitchChain } from "wagmi";
 import { toast } from "sonner";
+import { formatUnits } from "viem";
 
 import { robinhoodChain, shortAddr } from "@/lib/chain";
 
