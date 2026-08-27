@@ -5,6 +5,15 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { feeConfigQuery, feeEventsQuery, marketsQuery } from "@/lib/queries";
+import { GT_NETWORK } from "@/lib/chain";
+
+type DexPair = {
+  chainId: string;
+  pairAddress: string;
+  priceUsd: string;
+  liquidity?: { usd?: number };
+  baseToken: { symbol: string; name: string };
+};
 import { fmtUsd } from "@/lib/kova";
 
 export const Route = createFileRoute("/admin")({
@@ -46,7 +55,7 @@ function AdminPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [newSymbol, setNewSymbol] = useState("");
   const [newName, setNewName] = useState("");
-  const [newPrice, setNewPrice] = useState("0.01");
+  const [newAddress, setNewAddress] = useState("");
 
   useEffect(() => {
     if (cfg.data && !draft) {
@@ -87,11 +96,27 @@ function AdminPage() {
 
   const addMarket = useMutation({
     mutationFn: async () => {
-      if (!newSymbol.trim() || !newName.trim()) throw new Error("Symbole et nom requis");
+      const addr = newAddress.trim();
+      if (!/^0x[a-fA-F0-9]{40}$/.test(addr))
+        throw new Error("Adresse de contrat invalide");
+
+      const res = await fetch(
+        `https://api.dexscreener.com/latest/dex/tokens/${addr}`,
+      );
+      const json = (await res.json()) as { pairs: DexPair[] | null };
+      const pairs = (json.pairs ?? []).filter((p) => p.chainId === GT_NETWORK);
+      if (pairs.length === 0)
+        throw new Error("Aucun pool trouvé sur Robinhood Chain pour ce token");
+      const best = pairs.reduce((a, b) =>
+        (b.liquidity?.usd ?? 0) > (a.liquidity?.usd ?? 0) ? b : a,
+      );
+
       const { error } = await supabase.from("markets").insert({
-        symbol: newSymbol.trim().toUpperCase(),
-        name: newName.trim(),
-        base_price: Number(newPrice) || 0.01,
+        symbol: (newSymbol.trim() || best.baseToken.symbol).toUpperCase(),
+        name: newName.trim() || best.baseToken.name,
+        base_price: Number(best.priceUsd) || 0,
+        token_address: addr,
+        pool_address: best.pairAddress,
         max_leverage: draft?.max_leverage ?? 3,
       });
       if (error) throw error;
@@ -100,6 +125,7 @@ function AdminPage() {
       toast.success("Memecoin listé");
       setNewSymbol("");
       setNewName("");
+      setNewAddress("");
       qc.invalidateQueries({ queryKey: ["markets"] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -272,24 +298,24 @@ function AdminPage() {
             ))}
           </div>
 
-          <div className="mt-4 grid grid-cols-3 gap-2">
+          <input
+            value={newAddress}
+            onChange={(e) => setNewAddress(e.target.value)}
+            placeholder="0x… adresse du contrat sur Robinhood Chain"
+            className="mono-num mt-4 w-full rounded border border-input bg-input/40 px-2 py-2 text-xs outline-none focus:border-primary"
+          />
+          <div className="mt-2 grid grid-cols-2 gap-2">
             <input
               value={newSymbol}
               onChange={(e) => setNewSymbol(e.target.value)}
-              placeholder="SYMBOLE"
+              placeholder="SYMBOLE (auto)"
               className="rounded border border-input bg-input/40 px-2 py-2 font-mono text-xs outline-none focus:border-primary"
             />
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              placeholder="Nom"
+              placeholder="Nom (auto)"
               className="rounded border border-input bg-input/40 px-2 py-2 text-sm outline-none focus:border-primary"
-            />
-            <input
-              value={newPrice}
-              onChange={(e) => setNewPrice(e.target.value.replace(/[^0-9.]/g, ""))}
-              placeholder="Prix"
-              className="mono-num rounded border border-input bg-input/40 px-2 py-2 text-sm outline-none focus:border-primary"
             />
           </div>
           <button

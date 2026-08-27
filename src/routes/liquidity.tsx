@@ -10,7 +10,8 @@ import {
   lpPositionsQuery,
   positionsQuery,
 } from "@/lib/queries";
-import { fmtUsd, getAccount, getBalance, setBalance } from "@/lib/kova";
+import { fmtUsd } from "@/lib/kova";
+import { useAccount } from "wagmi";
 
 export const Route = createFileRoute("/liquidity")({
   head: () => ({
@@ -38,13 +39,17 @@ function LiquidityPage() {
   const fees = useQuery(feeConfigQuery);
   const events = useQuery(feeEventsQuery);
   const positions = useQuery(positionsQuery);
+  const { address, isConnected } = useAccount();
   const [amount, setAmount] = useState("1000");
 
-  const account = typeof window !== "undefined" ? getAccount() : "";
+  const account = (address ?? "").toLowerCase();
   const rows = lps.data ?? [];
   const tvl = useMemo(() => rows.reduce((s, r) => s + Number(r.amount), 0), [rows]);
   const mine = useMemo(
-    () => rows.filter((r) => r.account === account).reduce((s, r) => s + Number(r.amount), 0),
+    () =>
+      rows
+        .filter((r) => account && r.account.toLowerCase() === account)
+        .reduce((s, r) => s + Number(r.amount), 0),
     [rows, account],
   );
   const share = tvl > 0 ? mine / tvl : 0;
@@ -60,13 +65,12 @@ function LiquidityPage() {
   const deposit = useMutation({
     mutationFn: async () => {
       const v = Number(amount) || 0;
+      if (!account) throw new Error("Connecte ton wallet");
       if (v <= 0) throw new Error("Montant invalide");
-      if (v > getBalance()) throw new Error("Solde démo insuffisant");
       const { error } = await supabase
         .from("lp_positions")
-        .insert({ account: getAccount(), amount: v });
+        .insert({ account, amount: v });
       if (error) throw error;
-      setBalance(getBalance() - v);
     },
     onSuccess: () => {
       toast.success("Liquidité déposée");
@@ -77,15 +81,15 @@ function LiquidityPage() {
 
   const withdrawAll = useMutation({
     mutationFn: async () => {
+      if (!account) throw new Error("Connecte ton wallet");
       if (mine <= 0) throw new Error("Aucune liquidité déposée");
       const free = tvl - borrowed;
       if (mine > free) throw new Error("Liquidité utilisée par des positions ouvertes");
       const { error } = await supabase
         .from("lp_positions")
         .delete()
-        .eq("account", getAccount());
+        .eq("account", account);
       if (error) throw error;
-      setBalance(getBalance() + mine + myFees);
     },
     onSuccess: () => {
       toast.success("Liquidité retirée avec les frais");
@@ -137,8 +141,8 @@ function LiquidityPage() {
                   {rows.map((r) => (
                     <tr key={r.id} className="border-t border-border/60">
                       <td className="py-2 font-mono text-xs">
-                        {r.account.slice(0, 9)}…
-                        {r.account === account && (
+                        {r.account.slice(0, 6)}…{r.account.slice(-4)}
+                        {account && r.account.toLowerCase() === account && (
                           <span className="ml-2 text-primary">toi</span>
                         )}
                       </td>
@@ -178,14 +182,14 @@ function LiquidityPage() {
           />
           <button
             onClick={() => deposit.mutate()}
-            disabled={deposit.isPending}
+            disabled={deposit.isPending || !isConnected}
             className="mt-3 w-full rounded bg-primary py-2.5 font-mono text-xs tracking-widest text-primary-foreground shadow-[var(--glow-primary)] hover:opacity-90 disabled:opacity-50"
           >
-            DÉPOSER
+            {isConnected ? "DÉPOSER" : "CONNECTE TON WALLET"}
           </button>
           <button
             onClick={() => withdrawAll.mutate()}
-            disabled={withdrawAll.isPending}
+            disabled={withdrawAll.isPending || !isConnected}
             className="mt-2 w-full rounded border border-border py-2.5 font-mono text-xs tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:opacity-50"
           >
             TOUT RETIRER + FRAIS

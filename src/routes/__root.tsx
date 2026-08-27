@@ -12,6 +12,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Nav } from "../components/kova/Nav";
+import { WalletProvider } from "../components/kova/WalletProvider";
 import { Toaster } from "../components/ui/sonner";
 
 function NotFoundComponent() {
@@ -123,13 +124,15 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <div className="min-h-screen">
-        <Nav />
-        {/* Required: nested routes render here. */}
-        <Outlet />
-      </div>
-      <Toaster />
-    </QueryClientProvider>
+    <WalletProvider>
+      <QueryClientProvider client={queryClient}>
+        <div className="min-h-screen">
+          <Nav />
+          {/* Required: nested routes render here. */}
+          <Outlet />
+        </div>
+        <Toaster />
+      </QueryClientProvider>
+    </WalletProvider>
   );
 }

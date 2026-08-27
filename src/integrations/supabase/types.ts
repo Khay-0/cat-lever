@@ -115,7 +115,9 @@ export type Database = {
           is_active: boolean
           max_leverage: number
           name: string
+          pool_address: string | null
           symbol: string
+          token_address: string | null
         }
         Insert: {
           base_price?: number
@@ -124,7 +126,9 @@ export type Database = {
           is_active?: boolean
           max_leverage?: number
           name: string
+          pool_address?: string | null
           symbol: string
+          token_address?: string | null
         }
         Update: {
           base_price?: number
@@ -133,7 +137,9 @@ export type Database = {
           is_active?: boolean
           max_leverage?: number
           name?: string
+          pool_address?: string | null
           symbol?: string
+          token_address?: string | null
         }
         Relationships: []
       }

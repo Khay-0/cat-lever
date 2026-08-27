@@ -8,6 +8,8 @@ export type Market = {
   base_price: number;
   max_leverage: number;
   is_active: boolean;
+  token_address: string | null;
+  pool_address: string | null;
 };
 
 export type FeeConfig = {
