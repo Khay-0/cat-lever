@@ -64,7 +64,7 @@ export function ConnectWallet() {
           SOLDE ETH
         </div>
         <div className="mono-num text-sm text-primary">
-          {bal ? Number(bal.formatted).toFixed(4) : "—"}
+          {bal ? Number(formatUnits(bal.value, bal.decimals)).toFixed(4) : "—"}
         </div>
       </div>
       <button
