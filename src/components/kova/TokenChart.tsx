@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { GT_NETWORK } from "@/lib/chain";
 
-const RESOLUTIONS = [
+const INTERVALS = [
   { label: "5m", value: "5" },
   { label: "15m", value: "15" },
   { label: "1H", value: "60" },
@@ -10,10 +10,7 @@ const RESOLUTIONS = [
   { label: "1J", value: "1D" },
 ] as const;
 
-/**
- * Real TradingView chart of the pool, fed by live Robinhood Chain swap data
- * (GeckoTerminal embed).
- */
+/** Graphique DexScreener du pool, alimenté par les swaps réels de Robinhood Chain. */
 export function TokenChart({
   poolAddress,
   symbol,
@@ -21,7 +18,7 @@ export function TokenChart({
   poolAddress: string | null;
   symbol: string;
 }) {
-  const [resolution, setResolution] = useState<string>("15");
+  const [interval, setInterval] = useState<string>("15");
 
   if (!poolAddress) {
     return (
@@ -31,21 +28,21 @@ export function TokenChart({
     );
   }
 
-  const src = `https://www.geckoterminal.com/${GT_NETWORK}/pools/${poolAddress}?embed=1&info=0&swaps=0&grayscale=0&light_chart=0&chart_type=price&resolution=${resolution}`;
+  const src = `https://dexscreener.com/${GT_NETWORK}/${poolAddress}?embed=1&loadChartSettings=0&trades=0&tabs=0&info=0&chartLeftToolbar=0&chartTheme=dark&theme=dark&chartStyle=1&chartType=usd&interval=${interval}`;
 
   return (
     <div>
       <div className="mb-2 flex items-center gap-1.5">
         <span className="font-mono text-[10px] tracking-widest text-muted-foreground">
-          GRAPH ON-CHAIN
+          GRAPH DEXSCREENER
         </span>
         <div className="ml-auto flex gap-1">
-          {RESOLUTIONS.map((r) => (
+          {INTERVALS.map((r) => (
             <button
               key={r.value}
-              onClick={() => setResolution(r.value)}
+              onClick={() => setInterval(r.value)}
               className={`rounded border px-2 py-1 font-mono text-[10px] tracking-widest transition-colors ${
-                resolution === r.value
+                interval === r.value
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-border text-muted-foreground hover:text-foreground"
               }`}
@@ -56,7 +53,7 @@ export function TokenChart({
         </div>
       </div>
       <iframe
-        key={`${poolAddress}-${resolution}`}
+        key={`${poolAddress}-${interval}`}
         title={`Graphique ${symbol} en temps réel`}
         src={src}
         className="h-[420px] w-full rounded border border-border bg-black"
