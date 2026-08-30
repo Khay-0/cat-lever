@@ -1,17 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { toast } from "sonner";
-
-import { supabase } from "@/integrations/supabase/client";
+import { formatEther, parseEther } from "viem";
 import {
-  feeConfigQuery,
-  feeEventsQuery,
-  lpPositionsQuery,
-  positionsQuery,
-} from "@/lib/queries";
-import { fmtUsd } from "@/lib/kova";
-import { useAccount } from "wagmi";
+  useAccount,
+  useBalance,
+  useReadContract,
+  useWaitForTransactionReceipt,
+  useWriteContract,
+} from "wagmi";
+
+import { feeConfigQuery } from "@/lib/queries";
+import { isAddress, vaultAbi } from "@/lib/contracts";
+import { EXPLORER, robinhoodChain, shortAddr } from "@/lib/chain";
 
 export const Route = createFileRoute("/liquidity")({
   head: () => ({
@@ -20,143 +22,175 @@ export const Route = createFileRoute("/liquidity")({
       {
         name: "description",
         content:
-          "Dépose de la liquidité dans le pool KOVA, finance le levier des traders et reçois ta part des frais générés sur Robinhood Chain.",
+          "Dépose de l'ETH dans le vault KOVA sur Robinhood Chain, finance le levier des traders et reçois ta part des frais on-chain.",
       },
       { property: "og:title", content: "Pool de liquidité KOVA" },
       {
         property: "og:description",
         content:
-          "Dépose de la liquidité, finance le levier des traders et reçois ta part des frais.",
+          "Dépose de l'ETH on-chain, finance le levier des traders et reçois ta part des frais.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: LiquidityPage,
 });
 
+const eth = (v?: bigint, digits = 5) =>
+  v === undefined ? "—" : Number(formatEther(v)).toFixed(digits);
+
 function LiquidityPage() {
-  const qc = useQueryClient();
-  const lps = useQuery(lpPositionsQuery);
-  const fees = useQuery(feeConfigQuery);
-  const events = useQuery(feeEventsQuery);
-  const positions = useQuery(positionsQuery);
+  const cfg = useQuery(feeConfigQuery);
   const { address, isConnected } = useAccount();
-  const [amount, setAmount] = useState("1000");
+  const [amount, setAmount] = useState("0.1");
 
-  const account = (address ?? "").toLowerCase();
-  const rows = lps.data ?? [];
-  const tvl = useMemo(() => rows.reduce((s, r) => s + Number(r.amount), 0), [rows]);
-  const mine = useMemo(
-    () =>
-      rows
-        .filter((r) => account && r.account.toLowerCase() === account)
-        .reduce((s, r) => s + Number(r.amount), 0),
-    [rows, account],
-  );
-  const share = tvl > 0 ? mine / tvl : 0;
+  const vault = cfg.data?.vault_address;
+  const deployed = isAddress(vault);
+  const vaultAddress = deployed ? vault : undefined;
 
-  const borrowed = (positions.data ?? [])
-    .filter((p) => p.status === "open")
-    .reduce((s, p) => s + Number(p.collateral) * (Number(p.leverage) - 1), 0);
-  const utilization = tvl > 0 ? Math.min(1, borrowed / tvl) : 0;
+  const read = {
+    address: vaultAddress,
+    abi: vaultAbi,
+    chainId: robinhoodChain.id,
+    query: { enabled: deployed, refetchInterval: 15_000 },
+  } as const;
 
-  const lpFees = (events.data ?? []).reduce((s, e) => s + Number(e.lp_amount), 0);
-  const myFees = lpFees * share;
-
-  const deposit = useMutation({
-    mutationFn: async () => {
-      const v = Number(amount) || 0;
-      if (!account) throw new Error("Connecte ton wallet");
-      if (v <= 0) throw new Error("Montant invalide");
-      const { error } = await supabase
-        .from("lp_positions")
-        .insert({ account, amount: v });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Liquidité déposée");
-      qc.invalidateQueries({ queryKey: ["lp_positions"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
+  const { data: totalAssets } = useReadContract({ ...read, functionName: "totalAssets" });
+  const { data: borrowed } = useReadContract({ ...read, functionName: "totalBorrowed" });
+  const { data: available } = useReadContract({ ...read, functionName: "availableLiquidity" });
+  const { data: myShares, refetch: refetchShares } = useReadContract({
+    ...read,
+    functionName: "sharesOf",
+    args: address ? [address] : undefined,
+    query: { enabled: deployed && Boolean(address), refetchInterval: 15_000 },
+  });
+  const { data: myAssets, refetch: refetchAssets } = useReadContract({
+    ...read,
+    functionName: "assetsOf",
+    args: address ? [address] : undefined,
+    query: { enabled: deployed && Boolean(address), refetchInterval: 15_000 },
+  });
+  const { data: wallet } = useBalance({
+    address,
+    chainId: robinhoodChain.id,
+    query: { enabled: Boolean(address) },
   });
 
-  const withdrawAll = useMutation({
-    mutationFn: async () => {
-      if (!account) throw new Error("Connecte ton wallet");
-      if (mine <= 0) throw new Error("Aucune liquidité déposée");
-      const free = tvl - borrowed;
-      if (mine > free) throw new Error("Liquidité utilisée par des positions ouvertes");
-      const { error } = await supabase
-        .from("lp_positions")
-        .delete()
-        .eq("account", account);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Liquidité retirée avec les frais");
-      qc.invalidateQueries({ queryKey: ["lp_positions"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
+  const { writeContractAsync, isPending } = useWriteContract();
+  const [hash, setHash] = useState<`0x${string}` | undefined>();
+  const receipt = useWaitForTransactionReceipt({ hash });
+
+  const utilization =
+    totalAssets && totalAssets > 0n && borrowed !== undefined
+      ? Number((borrowed * 10000n) / totalAssets) / 100
+      : 0;
+
+  async function run(fn: () => Promise<`0x${string}`>, label: string) {
+    try {
+      const tx = await fn();
+      setHash(tx);
+      toast.success(`${label} — transaction envoyée`);
+      await new Promise((r) => setTimeout(r, 4000));
+      void refetchShares();
+      void refetchAssets();
+    } catch (e) {
+      toast.error((e as Error).message.split("\n")[0] ?? "Transaction refusée");
+    }
+  }
+
+  const deposit = () =>
+    run(
+      () =>
+        writeContractAsync({
+          address: vaultAddress!,
+          abi: vaultAbi,
+          functionName: "deposit",
+          value: parseEther(amount || "0"),
+          chainId: robinhoodChain.id,
+        }),
+      "Dépôt",
+    );
+
+  const withdrawAll = () =>
+    run(
+      () =>
+        writeContractAsync({
+          address: vaultAddress!,
+          abi: vaultAbi,
+          functionName: "withdraw",
+          args: [myShares ?? 0n],
+          chainId: robinhoodChain.id,
+        }),
+      "Retrait",
+    );
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-6">
       <h1 className="font-mono text-lg tracking-widest neon-text">POOL DE LIQUIDITÉ</h1>
       <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-        La liquidité déposée finance le levier des traders. Chaque trade prélève des
-        frais dont{" "}
+        Dépose de l'ETH dans le vault on-chain : il finance le levier des traders. Chaque
+        transaction prélève{" "}
         <span className="text-primary">
-          {((fees.data?.lp_share_bps ?? 7000) / 100).toFixed(0)}%
+          {((cfg.data?.trading_fee_bps ?? 20) / 100).toFixed(2)}%
         </span>{" "}
-        reviennent aux fournisseurs de liquidité, au prorata de leur part du pool.
+        de frais, dont{" "}
+        <span className="text-primary">
+          {((cfg.data?.lp_share_bps ?? 7000) / 100).toFixed(0)}%
+        </span>{" "}
+        restent dans le vault et font monter la valeur de tes parts.
       </p>
+
+      {!deployed && (
+        <div className="mt-4 rounded border border-destructive/60 px-4 py-3 text-sm text-destructive">
+          Le vault n'est pas encore branché. Déploie <code>contracts/KovaVault.sol</code>{" "}
+          puis colle son adresse dans le panneau admin.
+        </div>
+      )}
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_360px]">
         <section className="space-y-4">
           <div className="panel grid grid-cols-2 gap-4 p-4 sm:grid-cols-4">
-            <Metric label="TVL DU POOL" value={`$${fmtUsd(tvl)}`} />
-            <Metric label="EMPRUNTÉ" value={`$${fmtUsd(borrowed)}`} />
-            <Metric label="UTILISATION" value={`${(utilization * 100).toFixed(1)}%`} />
-            <Metric label="FRAIS LP CUMULÉS" value={`$${fmtUsd(lpFees)}`} />
+            <Metric label="TVL DU VAULT" value={`${eth(totalAssets)} ETH`} />
+            <Metric label="EMPRUNTÉ" value={`${eth(borrowed)} ETH`} />
+            <Metric label="DISPONIBLE" value={`${eth(available)} ETH`} />
+            <Metric label="UTILISATION" value={`${utilization.toFixed(1)}%`} />
           </div>
 
-          <div className="panel p-4">
-            <h2 className="mb-3 font-mono text-[11px] tracking-widest text-muted-foreground">
-              DÉPÔTS DU POOL
+          <div className="panel p-4 text-sm text-muted-foreground">
+            <h2 className="mb-2 font-mono text-[11px] tracking-widest">
+              CONTRAT DU VAULT
             </h2>
-            {rows.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                Le pool est vide. Sois le premier à déposer.
-              </p>
+            {deployed ? (
+              <a
+                href={`${EXPLORER}/address/${vaultAddress}`}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-xs text-primary hover:underline"
+              >
+                {shortAddr(vaultAddress)} ↗
+              </a>
             ) : (
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="font-mono text-[10px] tracking-widest text-muted-foreground">
-                    <th className="pb-2">COMPTE</th>
-                    <th className="pb-2">MONTANT</th>
-                    <th className="pb-2">PART</th>
-                    <th className="pb-2">DATE</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.id} className="border-t border-border/60">
-                      <td className="py-2 font-mono text-xs">
-                        {r.account.slice(0, 6)}…{r.account.slice(-4)}
-                        {account && r.account.toLowerCase() === account && (
-                          <span className="ml-2 text-primary">toi</span>
-                        )}
-                      </td>
-                      <td className="mono-num">${fmtUsd(Number(r.amount))}</td>
-                      <td className="mono-num text-muted-foreground">
-                        {tvl > 0 ? ((Number(r.amount) / tvl) * 100).toFixed(1) : "0.0"}%
-                      </td>
-                      <td className="font-mono text-xs text-muted-foreground">
-                        {new Date(r.created_at).toLocaleDateString("fr-FR")}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <span className="font-mono text-xs">non déployé</span>
+            )}
+            <p className="mt-3">
+              Les dépôts et retraits sont des transactions réelles signées avec ton
+              wallet. Un retrait n'est possible que sur la liquidité non empruntée par
+              des positions ouvertes.
+            </p>
+            {hash && (
+              <p className="mt-3 font-mono text-xs">
+                Dernière tx :{" "}
+                <a
+                  href={`${EXPLORER}/tx/${hash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  {shortAddr(hash)} ↗
+                </a>{" "}
+                {receipt.isLoading ? "· en attente…" : receipt.isSuccess ? "· confirmée" : ""}
+              </p>
             )}
           </div>
         </section>
@@ -165,14 +199,16 @@ function LiquidityPage() {
           <h2 className="font-mono text-[11px] tracking-widest text-muted-foreground">
             MA POSITION LP
           </h2>
-          <div className="mono-num mt-1 text-2xl text-primary">${fmtUsd(mine)}</div>
+          <div className="mono-num mt-1 text-2xl text-primary">
+            {eth(myAssets)} ETH
+          </div>
           <dl className="mt-3 space-y-1.5 text-sm">
-            <Row label="Part du pool" value={`${(share * 100).toFixed(2)}%`} />
-            <Row label="Frais gagnés" value={`$${fmtUsd(myFees)}`} />
+            <Row label="Mes parts" value={eth(myShares)} />
+            <Row label="Solde wallet" value={`${eth(wallet?.value)} ETH`} />
           </dl>
 
           <label className="mt-4 block font-mono text-[10px] tracking-widest text-muted-foreground">
-            MONTANT À DÉPOSER (USD)
+            MONTANT À DÉPOSER (ETH)
           </label>
           <input
             value={amount}
@@ -181,15 +217,15 @@ function LiquidityPage() {
             className="mono-num mt-1 w-full rounded border border-input bg-input/40 px-3 py-2 text-lg outline-none focus:border-primary"
           />
           <button
-            onClick={() => deposit.mutate()}
-            disabled={deposit.isPending || !isConnected}
+            onClick={deposit}
+            disabled={isPending || !isConnected || !deployed}
             className="mt-3 w-full rounded bg-primary py-2.5 font-mono text-xs tracking-widest text-primary-foreground shadow-[var(--glow-primary)] hover:opacity-90 disabled:opacity-50"
           >
-            {isConnected ? "DÉPOSER" : "CONNECTE TON WALLET"}
+            {!isConnected ? "CONNECTE TON WALLET" : "DÉPOSER"}
           </button>
           <button
-            onClick={() => withdrawAll.mutate()}
-            disabled={withdrawAll.isPending || !isConnected}
+            onClick={withdrawAll}
+            disabled={isPending || !isConnected || !deployed || !myShares}
             className="mt-2 w-full rounded border border-border py-2.5 font-mono text-xs tracking-widest text-muted-foreground hover:border-primary hover:text-primary disabled:opacity-50"
           >
             TOUT RETIRER + FRAIS
